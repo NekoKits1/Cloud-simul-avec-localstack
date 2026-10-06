@@ -1,26 +1,82 @@
-# Cloud-simulé-avec-localstack
-Ceci est un projet où on expérimente les services Cloud mais non facturés, en mettant en place un prototype de traitement d'image(redimensionnement), basé sur les services comme S3, Lambda, API-Gateway et DynamoDB
+# Simulation d'un Cloud Local avec LocalStack
 
-on Travaille ici avec DOCKER et on utilisera donc ces commande :
-- pour lancer le conteneur localstack: *docker run --name localstack -d -p 4566:4566 -p 4510-4559:4510-4559  -v /var/run/docker.sock:/var/run/docker.sock -v localstack-data:/var/lib/localstack localstack/localstack*
-- Pour utiliser la bibliotheque Pillow pour les redimensionnements de l'image: *docker run --rm -v "$PWD":/var/task --entrypoint /bin/bash public.ecr.aws/lambda/python:3.9 -c "pip install pillow -t package"*
+Prototype serverless de traitement d'image (redimensionnement), construit pour expérimenter une architecture AWS événementielle **sans jamais payer un centime de facturation cloud réelle** — tout tourne en local via Docker et LocalStack.
 
-# alice
-Option 1 : Upload via script Bash (recommandé) 
-Le fichier payload.sh simplifie l'upload d'images.
-1. Rendre le script exécutable :
-chmod +x payload.sh
-2. Utiliser le script :
-./payload.sh votre_image.jpg nom_utilisateur
-Exemple :
-./payload.sh photo_vacances.jpg alice
+> Projet académique. Le rapport complet est disponible dans `rapport.pdf`.
 
-# Structure des fichiers
-Cloud-simul-avec-localstack/
-│
-├── lambda_function.py      # Code de la fonction Lambda (traitement d'images)
-├── payload.sh              # Script Bash pour upload facilité
-├── README.md               # Ce fichier
-│
-└── package/                # Dépendances Python (Pillow) - à créer
-    └── (fichiers Pillow)
+---
+
+## Pipeline
+
+```
+┌──────────┐    upload     ┌────────────┐   trigger    ┌──────────┐
+│  Client   │ ───────────► │  S3 bucket  │ ───────────► │  Lambda   │
+│ (API REST)│               │  (source)   │               │ (resize)  │
+└──────────┘               └────────────┘               └────┬─────┘
+      ▲                                                        │
+      │              ┌────────────┐                            │
+      └───────────── │ API Gateway │ ◄── métadonnées ───────────┤
+                      └────────────┘           │
+                                          ┌─────▼──────┐
+                                          │  DynamoDB   │
+                                          │ (métadonnées)│
+                                          └────────────┘
+```
+
+1. Le client dépose une image via une route exposée par **API Gateway**.
+2. L'image atterrit dans un bucket **S3**, ce qui déclenche une fonction **Lambda**.
+3. La Lambda redimensionne l'image et écrit le résultat dans un second bucket.
+4. Les métadonnées (taille, format, horodatage) sont enregistrées dans **DynamoDB**.
+
+Les quatre services sont orchestrés dans un seul environnement **Docker**, simulés localement par LocalStack — aucun compte AWS réel n'est nécessaire.
+
+---
+
+## Pourquoi LocalStack
+
+Tester une architecture serverless sur AWS coûte de l'argent dès les premiers appels Lambda ou les premières requêtes API Gateway. LocalStack simule ces services en local avec la même API que AWS : le code écrit pour LocalStack fonctionne, à la configuration d'endpoint près, sur un vrai compte AWS.
+
+---
+
+## Stack technique
+
+| Élément | Détail |
+|---|---|
+| Langage | Python |
+| Services AWS simulés | S3, Lambda, DynamoDB, API Gateway |
+| Orchestration | Docker / Docker Compose |
+| Émulation cloud | LocalStack |
+
+---
+
+## Mise en place
+
+**Prérequis** : Docker, Docker Compose, Python 3, [awscli-local](https://github.com/localstack/awscli-local) (`pip install awscli-local`).
+
+```bash
+# Démarrer LocalStack
+docker compose up -d
+
+# Créer le bucket source
+awslocal s3 mb s3://images-source
+
+# Déployer la fonction Lambda
+awslocal lambda create-function \
+  --function-name resize-image \
+  --runtime python3.12 \
+  --handler handler.lambda_handler \
+  --zip-file fileb://function.zip \
+  --role arn:aws:iam::000000000000:role/lambda-role
+
+# Tester en déposant une image
+awslocal s3 cp ./test.jpg s3://images-source/
+```
+
+---
+
+## Ce que ce projet m'a appris
+
+- Construire une architecture événementielle (S3 → Lambda → DynamoDB) sans dépendre d'un compte AWS facturé
+- Déployer et invoquer une fonction Lambda via CLI
+- Orchestrer plusieurs services cloud simulés dans un même environnement Docker
+- Les limites de LocalStack par rapport à un vrai environnement AWS (latence, fidélité de certains services), utiles à connaître avant un passage en production
