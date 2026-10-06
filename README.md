@@ -2,7 +2,7 @@
 
 Prototype serverless de traitement d'image (redimensionnement), construit pour expérimenter une architecture AWS événementielle **sans jamais payer un centime de facturation cloud réelle** — tout tourne en local via Docker et LocalStack.
 
-> Projet académique. Le rapport complet est disponible dans `rapport.pdf`.
+> Projet académique.
 
 ---
 
